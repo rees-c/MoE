@@ -19,84 +19,76 @@ from moe.utils import normalizer_from_subsets, AverageMeter, \
     get_small_datasets_info_dict
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--filename_prefix', type=str, default='')
-parser.add_argument('--dataset_name', type=str, default=None)
-parser.add_argument('--head', type=str, default='sanity')
-parser.add_argument('--num_layers', type=int, default=1)
-parser.add_argument('--layer_to_extract_from', type=str, default='conv')
-parser.add_argument('--partition_seed', type=int, default=0)
-parser.add_argument('--num_layers_to_unfreeze', type=int, default=0)
-parser.add_argument('--backbone_name', type=str, default=None)
-parser.add_argument('--option', type=str, default='single')
-parser.add_argument('--test', action='store_true')
-parser.add_argument('--use_all_backbones', action='store_true')
-parser.add_argument('--k_backbone_gating', type=int, default=0)
-parser.add_argument('--n_pseudo_attn_heads', type=int, default=0)
-parser.add_argument('--optim', type=str, default='SGD')
+parser.add_argument('--filename_prefix', type=str, default='',
+                    help='Path and filename prefix to prepend to output file '
+                         'names.')
+parser.add_argument('--dataset_name', type=str, default=None,
+                    help='Downstream dataset name.')
+parser.add_argument('--n_head_layers', type=int, default=3)
+parser.add_argument('--layer_to_extract_from', type=str, default='conv',
+                    help='conv-2, conv, first_fc, or penultimate_fc')
+parser.add_argument('--seed', type=int, default=0)
+parser.add_argument('--num_layers_to_unfreeze', type=int, default=1,
+                    help='Number of extractor layers to fine-tune.')
+parser.add_argument(
+    '--option', type=str, default='add_k',
+    help='If \'pairwise_TL\', train new layers on top of a single extractor. '
+         'If \'ensemble\', train 3 separate heads on 3 separate '
+         'extractors, then predict a weighted average of the outputs, where '
+         'the weights are learned.'
+         'If \'concat\', concatenate all the extractor outputs, learn a '
+         'scaling parameter to multiply against the output of each one, and '
+         'learn new head layers on top.'
+         'If \'add_k\', learn a scaling parameter for each extractor, then add '
+         'the outputs of the k extractors with the largest scaling parameters '
+         'into a single vector. ')
+parser.add_argument('--extractor_name', type=str, default=None,
+                    help='If --option is \'pairwise_TL\', then'
+                    ' \'--extractor_name\' specifies the extractor.')
+parser.add_argument('--use_all_extractors', action='store_true',
+                    help='If True, use all 18 backbones instead of 3 manually '
+                         'chosen ones.')
+parser.add_argument('--k_extractor_gating', type=int, default=2,
+                    help='If --option is \'add_k\', determines the number'
+                         ' of extractors to use in the combined '
+                         'representation.')
+parser.add_argument('--n_pseudo_attn_heads', type=int, default=1,
+                    help='Number of combined feature vectors to produce from '
+                         'the backbones.')
+parser.add_argument('--optim', type=str, default='Adam')
 args = parser.parse_args(sys.argv[1:])
 
 
-def main(dataset_name='expt_eform', head='sanity', n_head_layers=1,
-         layer_to_extract_from='conv', partition_seed=0,
-         num_layers_to_unfreeze=0, backbone_name=None, option='single'):
-    """
-
-    :param dataset_name:
-    :param head:
-    :param n_head_layers:
-    :param layer_to_extract_from: 'conv-2', 'conv', 'first_fc', or
-        'penultimate_fc'
-    :param partition_seed:
-    :param num_layers_to_unfreeze:
-    :param backbone_name:
-    :param option: If 'single', train new layers on top of a single backbone.
-        If 'concat', concatenate all the backbones, learn a scaling parameter
-        for each one, and learn new layers on top. If 'add', learn a scaling
-        parameter for each backbone, then add all the backbones into a single
-        vector. If 'add_2', do the previous, but only keep the 2 scaling
-        parameters with the largest absolute value (and set the rest to 0).
-        If 'add_k', do the previous, but keep a user-defined k backbones.
-        If 'add_attn', produce data-dependent scaling parameters for
-        each backbone. If 'ensemble', train 3 separate heads on 3 separate
-        backbones, then predict a weighted average of the outputs, where the
-        weights are learned.
-    :param use_all_backbones: If True, use all 18 backbones instead of
-        3 manually chosen ones.
-    :param k_backbone_gating: Only allow k backbones to be used in the learned
-        representation.
-    :param n_pseudo_attn_heads: This arg is only used if option=='add_k'. Sets the
-        number of mixed backbones to learn and concatenate together.
-    :return:
-    """
+def main(dataset_name='expt_eform', n_head_layers=3,
+         layer_to_extract_from='conv', seed=0,
+         num_layers_to_unfreeze=1, extractor_name='mp_eform',
+         option='pairwise_TL'):
 
     global args
     if args.option == 'add_k':
-        assert args.k_backbone_gating != 0
+        assert args.k_extractor_gating != 0
 
     if args.dataset_name is not None:
         dataset_name = args.dataset_name
-        head = args.head
-        n_head_layers = args.num_layers
+        n_head_layers = args.n_head_layers
         layer_to_extract_from = args.layer_to_extract_from
-        # partition_seed = args.partition_seed
         num_layers_to_unfreeze = args.num_layers_to_unfreeze
-        backbone_name = args.backbone_name
+        extractor_name = args.extractor_name
         option = args.option
         test = args.test
 
         print('dataset: {}'.format(dataset_name))
-        print('head: {}'.format(head))
         print('num layers learned from scratch: {}'.format(n_head_layers))
         print('layer to extract from: {}'.format(layer_to_extract_from))
-        print('partition seed: {}'.format(partition_seed))
+        print('seed: {}'.format(seed))
         print('num_layers_to_unfreeze: {}'.format(num_layers_to_unfreeze))
-        print('backbone name: {}'.format(backbone_name))
+        print('extractor name: {}'.format(extractor_name))
         print('option: {}'.format(option))
         print('test: {}'.format(test))
-        print('use_all_backbones: {}'.format(args.use_all_backbones))
+        print('use_all_extractors: {}'.format(args.use_all_extractors))
         print('optim: {}'.format(args.optim))
         if option == 'add_k':
-            print('k backbone gating: {}'.format(args.k_backbone_gating))
+            print('k extractor gating: {}'.format(args.k_extractor_gating))
             print('n_pseudo_attn_heads: {}'.format(args.n_pseudo_attn_heads))
 
     if not args.filename_prefix:
@@ -106,9 +98,9 @@ def main(dataset_name='expt_eform', head='sanity', n_head_layers=1,
         if not os.path.exists(today):
             os.makedirs(today)
 
-        torch.manual_seed(partition_seed)
+        torch.manual_seed(seed)
 
-        filename_prefix = today + '/head_selection_sanity_check_'  # to pre-pend to filenames of results
+        filename_prefix = today + '/'  # to prepend to filenames of results
     else:
         filename_prefix = args.filename_prefix
 
@@ -122,9 +114,9 @@ def main(dataset_name='expt_eform', head='sanity', n_head_layers=1,
     hyperparameter_dict = json.load(hyperparameter_file)
     model_kwargs = hyperparameter_dict['model_kwargs']
 
-    # ----------------------- Get pre-trained backbone -------------------------
-    if args.use_all_backbones:
-        model_paths = get_all_backbones()
+    # ----------------------- Get pre-trained extractor ------------------------
+    if args.use_all_extractors:
+        model_paths = get_all_extractors()
     else:  # use hand-picked backbones
         if dataset_name == 'jarvis_2d_exfoliation':
             model_paths = {  # task_name: extractor_path
@@ -160,22 +152,21 @@ def main(dataset_name='expt_eform', head='sanity', n_head_layers=1,
                     'cgcnn/data/saved_extractors/2022-01-26-15:48_singletask_eform_32hfealen_best_model.pth.tar'
             }
 
-    backbones = []
-    if option == 'single':
-        backbone_path = model_paths.get(backbone_name, None)
-        assert backbone_name is not None
+    extractors = []
+    if option == 'pairwise_TL':
+        extractor_path = model_paths.get(extractor_name, None)
+        assert extractor_name is not None
 
-        backbone = get_extractor(backbone_path, layer_to_extract_from,
-                                 model_kwargs=model_kwargs,
-                                 device='cuda' if cuda else 'cpu')
-        backbones.append(backbone)
-    elif option == 'add' or option == 'add_2' or option == 'concat' or \
-            option == 'ensemble' or option == 'add_k':
-        for backbone_name, backbone_path in model_paths.items():
-            backbone = get_extractor(
-                backbone_path, layer_to_extract_from, model_kwargs,
+        extractor = get_extractor(extractor_path, layer_to_extract_from,
+                                  model_kwargs=model_kwargs,
+                                  device='cuda' if cuda else 'cpu')
+        extractors.append(extractor)
+    elif option == 'concat' or option == 'ensemble' or option == 'add_k':
+        for extractor_name, extractor_path in model_paths.items():
+            extractor = get_extractor(
+                extractor_path, layer_to_extract_from, model_kwargs,
                 device='cuda' if cuda else 'cpu')
-            backbones.append(backbone)
+            extractors.append(extractor)
     else:
         raise NotImplementedError
 
@@ -196,8 +187,8 @@ def main(dataset_name='expt_eform', head='sanity', n_head_layers=1,
 
     # Get train/val/test indices from file
     with open(
-            'data/matminer/saved_partition_indices/all_task_partition_indices_seed' +
-            str(partition_seed) + '.pkl', 'rb') as f:
+            'data/matminer/saved_partition_indices/'
+            'all_task_partition_indices_seed' + str(seed) + '.pkl', 'rb') as f:
         dict_of_task_indices = pickle.load(f)
 
     train_indices, val_indices, test_indices = \
@@ -207,21 +198,12 @@ def main(dataset_name='expt_eform', head='sanity', n_head_layers=1,
     val_subset = Subset(task_dataset, val_indices)
     test_subset = Subset(task_dataset, test_indices)
 
-    # todo: try using test set too during normalization
-    # from random import sample
-    # import random
-    # random.seed(partition_seed)
-    # sample_data_list = [task_dataset[i] for i in
-    #                     sample(range(len(task_dataset)), 500)]
-    # _, labels_to_normalize_with, _ = collate_pool(sample_data_list)
-    # normalizer = Normalizer(labels_to_normalize_with)
-
-    # todo: normalize based only from train/val subsets
+    # Normalize only from train/val subsets
     normalizer = normalizer_from_subsets([train_subset, val_subset])
 
     file = open(
         'data/matminer/stl_baseline_val_maes/stl_small_task_val_maes_seed' +
-        str(partition_seed) + '.json')
+        str(seed) + '.json')
     dict_with_stl_val_maes = json.load(file)
     stl_val_mae = dict_with_stl_val_maes[dataset_name]
 
@@ -239,44 +221,41 @@ def main(dataset_name='expt_eform', head='sanity', n_head_layers=1,
         n_features = 64
     else:
         n_features = 32
-
     if option == 'concat':
         n_features = n_features * 3
 
-    if head == 'sanity':
-        if option == 'add_k' and args.n_pseudo_attn_heads > 0:
-            assert args.k_backbone_gating > 0
-            model = multihead_add_k_backbones(
-                num_pseudo_attention_heads=args.n_pseudo_attn_heads,
-                backbones=backbones, num_out_layers=n_head_layers,
-                backbone_feature_dim=n_features,
-                k_experts=args.k_backbone_gating)
-            param_groups = [{'params': model.non_backbone_parameters()}]
-
-        elif option != 'ensemble':
-            model = Sanity_Check_Head(
+    ensembled_backbone = None
+    prediction_ensembler = None
+    models = None
+    if option == 'add_k' and args.n_pseudo_attn_heads > 0:
+        assert args.k_extractor_gating > 0
+        model = MultiheadedMixtureOfExpertsModel(
+            num_pseudo_attention_heads=args.n_pseudo_attn_heads,
+            backbones=extractors, num_out_layers=n_head_layers,
+            backbone_feature_dim=n_features,
+            k_experts=args.k_extractor_gating)
+        param_groups = [{'params': model.non_extractor_parameters()}]
+    elif option == 'pairwise_TL' or option == 'concat':
+        model = MultilayerPerceptronHead(
+            num_layers=n_head_layers, input_dim=n_features)
+        ensembled_backbone = MixtureOfExtractors(extractors, option)
+        param_groups = [
+            {'params': model.parameters()},
+            {'params': ensembled_backbone.non_extractor_parameters()}]
+    elif option == 'ensemble':
+        models = []
+        for _ in extractors:
+            model = MultilayerPerceptronHead(
                 num_layers=n_head_layers, input_dim=n_features)
-            ensembled_backbone = learned_backbone(backbones, option)
-            param_groups = [
-                {'params': model.parameters()},
-                {'params': ensembled_backbone.non_backbone_parameters()}]
-
-        elif option == 'ensemble':
-            models = []
-            for _ in backbones:
-                model = Sanity_Check_Head(
-                    num_layers=n_head_layers, input_dim=n_features)
-                models.append(model)
-            prediction_ensembler = ensemble_predictions(len(backbones))
-            param_groups = [{'params': model.parameters()},
-                            {'params': prediction_ensembler.parameters()}]
-    else:
-        raise NotImplementedError
+            models.append(model)
+        prediction_ensembler = EnsemblePredictor(len(extractors))
+        param_groups = [{'params': model.parameters()},
+                        {'params': prediction_ensembler.parameters()}]
 
     if num_layers_to_unfreeze > 0:
-        for backbone in backbones:
+        for extractor in extractors:
             params_to_finetune = get_parameters_to_finetune(
-                backbone, num_layers_to_unfreeze, layer_to_extract_from)
+                extractor, num_layers_to_unfreeze, layer_to_extract_from)
             param_groups.append({'params': params_to_finetune, 'lr': 0.005})
 
     if cuda:
@@ -286,8 +265,8 @@ def main(dataset_name='expt_eform', head='sanity', n_head_layers=1,
             model.to('cuda')
             ensembled_backbone.to('cuda')
         else:
-            for i, backbone in enumerate(backbones):
-                backbone.to('cuda')
+            for i, extractor in enumerate(extractors):
+                extractor.to('cuda')
                 models[i].to('cuda')
             prediction_ensembler.to('cuda')
 
@@ -297,13 +276,15 @@ def main(dataset_name='expt_eform', head='sanity', n_head_layers=1,
     elif args.optim == 'Adam':
         optimizer = torch.optim.Adam(
             params=param_groups, lr=0.01)
+    else:
+        raise AttributeError
     lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer=optimizer, T_max=1000)
 
     # Create file for storing losses
     losses_filename = filename_prefix + option + '_transfer_to_' + \
-        str(dataset_name) + '_' + layer_to_extract_from + '_' + str(n_head_layers)\
-        + '_layers_' + 'seed' + str(partition_seed) + '_loss_data.csv'
+        str(dataset_name) + '_' + layer_to_extract_from + '_' + \
+        str(n_head_layers) + '_layers_' + 'seed' + str(seed) + '_loss_data.csv'
     loss_file = open(losses_filename, 'w', encoding='utf-8')
     writer = csv.writer(loss_file)
     writer.writerow(['batch_num', 'avg training loss', 'avg validation loss',
@@ -316,90 +297,21 @@ def main(dataset_name='expt_eform', head='sanity', n_head_layers=1,
     best_val_mae = 1e10
     num_batches_since_improvement = 0
     best_model_filename = filename_prefix + '_' + dataset_name + '_seed' + \
-        str(partition_seed) + '_best_model.pth'
+        str(seed) + '_best_model.pth'
     loss_regularizer = torch.tensor([0.], device='cuda' if cuda else 'cpu')
 
-    if option == 'add_2' or option == 'add_k':
-        early_stopping_n_epochs = 500
-    else:
-        early_stopping_n_epochs = 500  # 150
-
-    # 1000 epochs
-    for epoch in range(2):
-        # print('epoch: {}'.format(epoch))
-
+    early_stopping_n_epochs = 500
+    for epoch in range(1000):  # 1000 epochs
         for structures, labels, _ in train_dl:
-            if cuda:
-                structures = (structures[0].cuda(non_blocking=True),
-                              structures[1].cuda(non_blocking=True),
-                              structures[2].cuda(non_blocking=True),
-                              [crys_idx.cuda(non_blocking=True)
-                               for crys_idx in structures[3]])
-                labels = labels.cuda(non_blocking=True)
-
-            if option == 'add_k' and args.n_pseudo_attn_heads > 0:
-                predictions, loss_regularizer = model(structures)
-            elif option != 'ensemble':
-                features = ensembled_backbone(structures)
-                predictions = model(features)
-            else:
-                predictions_across_heads = []
-                for i, backbone in enumerate(backbones):
-                    features = backbone(*structures)
-                    predictions = models[i](features)
-                    if predictions.dim() == 2:
-                        predictions = predictions.squeeze(1)
-                    predictions_across_heads.append(predictions)
-
-                predictions_across_heads = torch.stack(
-                    predictions_across_heads, dim=1)
-                predictions = prediction_ensembler(predictions_across_heads)
-
-            if predictions.shape != labels.shape:
-                predictions = predictions.squeeze(1)
-
-            train_loss = F.mse_loss(predictions, normalizer.norm(labels))
-            total_loss = train_loss + 0.01 * loss_regularizer
-
-            train_loss_meter.update(train_loss.detach().clone(), labels.size(0))
-
-            optimizer.zero_grad()
-            total_loss.backward()
-            optimizer.step()
+            train(structures, labels, model, cuda, option, extractors,
+                  normalizer, train_loss_meter, optimizer, ensembled_backbone,
+                  prediction_ensembler, models)
 
         for structures, labels, _ in val_dl:
-            if cuda:
-                structures = (structures[0].cuda(non_blocking=True),
-                              structures[1].cuda(non_blocking=True),
-                              structures[2].cuda(non_blocking=True),
-                              [crys_idx.cuda(non_blocking=True)
-                               for crys_idx in structures[3]])
-                labels = labels.cuda(non_blocking=True)
-
-            if option == 'add_k' and args.n_pseudo_attn_heads > 0:
-                predictions, _ = model(structures)
-            elif option != 'ensemble':
-                features = ensembled_backbone(structures)
-                predictions = model(features)
-            else:
-                predictions_across_heads = []
-                for i, backbone in enumerate(backbones):
-                    features = backbone(*structures)
-                    predictions = models[i](features)
-                    if predictions.dim() == 2:
-                        predictions = predictions.squeeze(1)
-                    predictions_across_heads.append(predictions)
-
-                predictions_across_heads = torch.stack(
-                    predictions_across_heads, dim=1)
-                predictions = prediction_ensembler(predictions_across_heads)
-
-            if predictions.shape != labels.shape:
-                predictions = predictions.squeeze(1)
-
-            val_loss = F.mse_loss(predictions, normalizer.norm(labels))
-            val_mae = torch.mean(torch.abs(
-                normalizer.denorm(predictions) - labels))
+            val_loss, val_mae = evaluate(
+                structures, labels, model, cuda, option, extractors, normalizer,
+                ensembled_backbone, prediction_ensembler, models,
+                test=False)
 
             val_loss_meter.update(val_loss.detach().clone(), labels.size(0))
             val_mae_meter.update(val_mae.detach().clone(), labels.size(0))
@@ -416,9 +328,9 @@ def main(dataset_name='expt_eform', head='sanity', n_head_layers=1,
                 state_dicts = ensembled_backbone.state_dict()
             else:
                 state_dicts = []
-                for i in range(len(backbones)):
+                for i in range(len(extractors)):
                     state_dicts.append(
-                        (backbones[i].state_dict(), models[i].state_dict()))
+                        (extractors[i].state_dict(), models[i].state_dict()))
             torch.save({
                 'epoch': epoch,
                 'option': option,
@@ -460,18 +372,103 @@ def main(dataset_name='expt_eform', head='sanity', n_head_layers=1,
     else:
         state_dicts = checkpoint['model_state_dict']
         for i, (backbone_dict, model_dict) in enumerate(state_dicts):
-            backbones[i].load_state_dict(backbone_dict)
+            extractors[i].load_state_dict(backbone_dict)
             models[i].load_state_dict(model_dict)
 
     for structures, labels, _ in test_dl:
-        if cuda:
-            structures = (structures[0].cuda(non_blocking=True),
-                          structures[1].cuda(non_blocking=True),
-                          structures[2].cuda(non_blocking=True),
-                          [crys_idx.cuda(non_blocking=True) for crys_idx in
-                           structures[3]])
-            labels = labels.cuda(non_blocking=True)
+        test_mae = evaluate(
+            structures, labels, model, cuda, option, extractors, normalizer,
+            ensembled_backbone, prediction_ensembler, models, test=True)
 
+        test_mae_meter.update(test_mae.detach().clone(), labels.size(0))
+
+    print('Test MAE: {}'.format(test_mae_meter.avg))
+
+    return float(test_mae_meter.avg), float(best_val_mae / stl_val_mae)
+
+
+def train(structures, labels, model, cuda, option, extractors,
+          normalizer, train_loss_meter, optimizer, ensembled_backbone=None,
+          prediction_ensembler=None, models=None):
+    """
+
+    :param structures:
+    :param labels:
+    :param model:
+    :param cuda:
+    :param option:
+    :param extractors:
+    :param normalizer:
+    :param train_loss_meter:
+    :param optimizer:
+    :param ensembled_backbone: Only used if 'option' == 'pairwise_TL' or
+        'concat'
+    :param prediction_ensembler:  Only used if 'option' == 'ensemble'
+    :param models: Only used if 'option' == 'ensemble'
+    :return:
+    """
+    if cuda:
+        structures, labels = move_batch_to_cuda(structures, labels)
+
+    loss_regularizer = torch.tensor([0.])
+
+    # get predictions
+    if option == 'add_k' and args.n_pseudo_attn_heads > 0:
+        predictions, loss_regularizer = model(structures)
+    elif option == 'pairwise_TL' or option == 'concat':
+        assert ensembled_backbone is not None
+        features = ensembled_backbone(structures)
+        predictions = model(features)
+    elif option == 'ensemble':
+        assert models is not None
+        assert prediction_ensembler is not None
+        predictions_across_heads = []
+        for i, extractor in enumerate(extractors):
+            features = extractor(*structures)
+            predictions = models[i](features)
+            if predictions.dim() == 2:
+                predictions = predictions.squeeze(1)
+            predictions_across_heads.append(predictions)
+        predictions_across_heads = torch.stack(
+            predictions_across_heads, dim=1)
+        predictions = prediction_ensembler(predictions_across_heads)
+
+    if predictions.shape != labels.shape:
+        predictions = predictions.squeeze(1)
+
+    train_loss = F.mse_loss(predictions, normalizer.norm(labels))
+    total_loss = train_loss + 0.01 * loss_regularizer
+
+    train_loss_meter.update(train_loss.detach().clone(), labels.size(0))
+
+    optimizer.zero_grad()
+    total_loss.backward()
+    optimizer.step()
+
+
+def evaluate(structures, labels, model, cuda, option, extractors, normalizer,
+             ensembled_backbone=None, prediction_ensembler=None, models=None,
+             test=False):
+    """
+
+    :param structures:
+    :param labels:
+    :param model:
+    :param cuda:
+    :param option:
+    :param extractors:
+    :param normalizer:
+    :param ensembled_backbone: Only used if 'option' == 'pairwise_TL' or
+        'concat'
+    :param prediction_ensembler:  Only used if 'option' == 'ensemble'
+    :param models: Only used if 'option' == 'ensemble'
+    :param test:
+    :return:
+    """
+    if cuda:
+        structures, labels = move_batch_to_cuda(structures, labels)
+
+    with torch.no_grad():
         if option == 'add_k' and args.n_pseudo_attn_heads > 0:
             predictions, _ = model(structures)
         elif option != 'ensemble':
@@ -479,8 +476,8 @@ def main(dataset_name='expt_eform', head='sanity', n_head_layers=1,
             predictions = model(features)
         else:
             predictions_across_heads = []
-            for i, backbone in enumerate(backbones):
-                features = backbone(*structures)
+            for i, extractor in enumerate(extractors):
+                features = extractor(*structures)
                 predictions = models[i](features)
                 if predictions.dim() == 2:
                     predictions = predictions.squeeze(1)
@@ -493,13 +490,14 @@ def main(dataset_name='expt_eform', head='sanity', n_head_layers=1,
         if predictions.shape != labels.shape:
             predictions = predictions.squeeze(1)
 
-        test_mae = torch.mean(torch.abs(
+        loss = F.mse_loss(predictions, normalizer.norm(labels))
+        mae = torch.mean(torch.abs(
             normalizer.denorm(predictions) - labels))
-        test_mae_meter.update(test_mae.detach().clone(), labels.size(0))
 
-    print('Test MAE: {}'.format(test_mae_meter.avg))
-
-    return float(test_mae_meter.avg), float(best_val_mae / stl_val_mae)
+        if not test:
+            return loss.clone(), mae.clone()
+        else:
+            return mae.clone()
 
 
 def get_extractor(checkpoint_path=None, layer_to_extract_from='conv',
@@ -586,18 +584,15 @@ class Identity(nn.Module):
         return x
 
 
-class Sanity_Check_Head(nn.Module):
-    def __init__(self, num_layers, input_dim, option='single', hidden_dim=None):
-        super(Sanity_Check_Head, self).__init__()
+class MultilayerPerceptronHead(nn.Module):
+    def __init__(
+            self, num_layers, input_dim, option='pairwise_TL', hidden_dim=None):
+        super(MultilayerPerceptronHead, self).__init__()
         self.softplus = nn.Softplus()
         self.num_layers = num_layers
 
         if hidden_dim is None:
-            if option == 'single' or option == 'add' or option == 'add_2' or \
-                    option == 'add_attn':
-                hidden_dim = 32
-            elif option == 'concat':
-                hidden_dim = 32 * 3
+            hidden_dim = 32 if not option == 'concat' else 32 * 3
 
         layers = []
         if self.num_layers > 1:
@@ -620,53 +615,34 @@ class Sanity_Check_Head(nn.Module):
         return out
 
 
-class learned_backbone(nn.Module):
-    def __init__(self, backbones, option='single', k_experts=0):
+class MixtureOfExtractors(nn.Module):
+    def __init__(self, extractors, option='pairwise_TL', k_experts=0):
         """
+        If 'option' is 'pairwise_TL', let 'extractors' only contain a single
+        extractor.
+
         Args:
-            backbones (list of nn.Module): Backbones which all have output
+            extractors (list of nn.Module): Extractors which all have output
                 of the same dimensionality.
             option (str):
         """
-        super(learned_backbone, self).__init__()
-        self.backbones = nn.ModuleList(backbones)
+        super(MixtureOfExtractors, self).__init__()
+        self.extractors = nn.ModuleList(extractors)
         self.option = option
         self.k_experts = k_experts
 
         if self.option == 'add_k':
-            assert 0 < self.k_experts <= len(backbones)
+            assert 0 < self.k_experts <= len(extractors)
 
         self.scaling_params = nn.Parameter(
-            torch.ones(len(self.backbones)),
-            requires_grad=option != 'single' and option != 'ensemble')
-
-        # if self.option == 'add_2' or self.option == 'add_k':
-        #     nn.init.normal_(
-        #         self.scaling_params, mean=0., std=0.001)
-
+            torch.ones(len(self.extractors)),
+            requires_grad=option != 'pairwise_TL' and option != 'ensemble')
         self.softmax = nn.Softmax(dim=0)
 
     def forward(self, structure):
-        out = self.scaling_params[0] * self.backbones[0](*structure)
+        out = self.scaling_params[0] * self.extractors[0](*structure)
 
-        if self.option == 'single':
-            return out
-        elif self.option == 'add':
-            for i in range(len(self.backbones)-1):
-                scaled_backbone_to_add = self.scaling_params[i+1] * \
-                    self.backbones[i+1](*structure)
-                out = out + scaled_backbone_to_add
-            return out
-        elif self.option == 'add_2':
-            top_2_values, top_2_indices = torch.topk(
-                self.scaling_params, 2)
-            top_2_probabilities = self.softmax(top_2_values)
-
-            idx1, idx2 = top_2_indices[0], top_2_indices[1]
-            prob1, prob2 = top_2_probabilities[0], top_2_probabilities[1]
-
-            out = prob1 * self.backbones[idx1](*structure) + \
-                prob2 * self.backbones[idx2](*structure)
+        if self.option == 'pairwise_TL':
             return out
         elif self.option == 'add_k':
             top_k_values, top_k_indices = torch.topk(
@@ -674,38 +650,38 @@ class learned_backbone(nn.Module):
             top_k_probabilities = self.softmax(top_k_values)
 
             top_prob, top_idx = top_k_probabilities[0], top_k_indices[0]
-            out = top_prob * self.backbones[top_idx](*structure)
+            out = top_prob * self.extractors[top_idx](*structure)
 
             for i in range(self.k_experts-1):
 
                 prob, idx = top_k_probabilities[i+1], top_k_indices[i+1]
-                out = out + prob * self.backbones[idx](*structure)
+                out = out + prob * self.extractors[idx](*structure)
 
-            # sparsified backbone weights of shape: (len(self.backbones),)
+            # sparsified backbone weights of shape: (len(self.extractors),)
             backbone_scores = torch.zeros(
-                len(self.backbones), device=self.scaling_params.device).scatter(
+                len(self.extractors), device=self.scaling_params.device).scatter(
                 0, top_k_indices, top_k_probabilities)
 
             return out, backbone_scores
 
         elif self.option == 'concat':
-            for i in range(len(self.backbones) - 1):
+            for i in range(len(self.extractors) - 1):
                 scaled_backbone_to_concat = \
-                    self.scaling_params[i+1] * self.backbones[i+1](*structure)
+                    self.scaling_params[i+1] * self.extractors[i+1](*structure)
                 out = torch.cat((out, scaled_backbone_to_concat), dim=1)
             return out
         else:
             raise NotImplementedError
 
-    def non_backbone_parameters(self):
+    def non_extractor_parameters(self):
         for n, p in self.named_parameters():
-            if p.requires_grad and 'backbones' not in n:
+            if p.requires_grad and 'extractors' not in n:
                 yield p
 
 
-class ensemble_predictions(nn.Module):
+class EnsemblePredictor(nn.Module):
     def __init__(self, num_predictions_to_ensemble):
-        super(ensemble_predictions, self).__init__()
+        super(EnsemblePredictor, self).__init__()
         self.num_predictions_to_ensemble = num_predictions_to_ensemble
         self.weights = nn.Parameter(torch.ones(num_predictions_to_ensemble),
                                     requires_grad=True)
@@ -718,48 +694,50 @@ class ensemble_predictions(nn.Module):
         return out
 
 
-class multihead_add_k_backbones(nn.Module):
+class MultiheadedMixtureOfExpertsModel(nn.Module):
     def __init__(self, num_pseudo_attention_heads, backbones,
                  num_out_layers, backbone_feature_dim, k_experts=1):
-        super(multihead_add_k_backbones, self).__init__()
+        super(MultiheadedMixtureOfExpertsModel, self).__init__()
         self.num_pseudo_attention_heads = num_pseudo_attention_heads
         self.k_experts_per_head = k_experts
         self.backbone_feature_dim = backbone_feature_dim  # dimensionality of a single backbone's output
 
         self.pseudo_attention_heads = nn.ModuleList()
         for _ in range(num_pseudo_attention_heads):
-            pseudo_attention_head = learned_backbone(
+            pseudo_attention_head = MixtureOfExtractors(
                 backbones, option='add_k', k_experts=self.k_experts_per_head)
             self.pseudo_attention_heads.append(pseudo_attention_head)
 
-        self.out_layer = Sanity_Check_Head(
+        self.out_layer = MultilayerPerceptronHead(
             num_out_layers,
             input_dim=backbone_feature_dim * num_pseudo_attention_heads,
-            option='single', hidden_dim=32*num_pseudo_attention_heads)
+            option='pairwise_TL', hidden_dim=32*num_pseudo_attention_heads)
 
     def forward(self, structure):
         n_structures = len(structure[-1])
         head_outputs = []
         score_lst = []
 
-        out, backbone_scores = self.pseudo_attention_heads[0](structure)
+        out, extractor_scores = self.pseudo_attention_heads[0](structure)
         head_outputs.append(out)
-        score_lst.append(backbone_scores)
+        score_lst.append(extractor_scores)
 
         for i in range(self.num_pseudo_attention_heads-1):
-            out, backbone_scores = self.pseudo_attention_heads[i+1](structure)
+            out, extractor_scores = self.pseudo_attention_heads[i+1](structure)
 
             head_outputs.append(out)
-            score_lst.append(backbone_scores)
+            score_lst.append(extractor_scores)
 
         # batch_size, backbone_feature_size * num_pseudo_attention_heads
         multihead_feature = torch.stack(
             head_outputs, dim=-1).view(n_structures, -1)
 
-        # shape: (n_backbones, num_pseudo_attention_heads)
+        # shape: (n_extractors, num_pseudo_attention_heads)
         score_lst = torch.stack(score_lst, dim=-1)
 
-        # Use loss regularizer to avoid collapse to a single set of backbones
+        # Use loss regularizer to avoid collapse to a single set of extractors
+        # when self.num_pseudo_attention_heads > 1, and to a single extractor
+        # when self.num_pseudo_attentio_heads == 1
         loss_regularizer = torch.pow(
             torch.norm(
                 torch.transpose(score_lst, 0, 1) @ score_lst -
@@ -769,9 +747,9 @@ class multihead_add_k_backbones(nn.Module):
         out = self.out_layer(multihead_feature)
         return out, loss_regularizer
 
-    def non_backbone_parameters(self):
+    def non_extractor_parameters(self):
         for n, p in self.named_parameters():
-            if p.requires_grad and 'backbones' not in n:
+            if p.requires_grad and 'extractors' not in n:
                 yield p
 
 
@@ -878,32 +856,7 @@ class saved_structure_graphs_dataset(torch.utils.data.Dataset):
         return self.structure_graphs[idx], self.labels[idx], idx
 
 
-class Normalizer(object):
-    """Normalize a Tensor and restore it later. """
-
-    def __init__(self, tensor):
-        """tensor is taken as a sample to calculate the mean and std"""
-
-        self.mean = torch.mean(tensor)
-        self.std = torch.std(tensor)
-
-    def norm(self, tensor):
-        normed_tensor = tensor
-        return (normed_tensor - self.mean) / self.std
-
-    def denorm(self, normed_tensor):
-        return normed_tensor * self.std + self.mean
-
-    def state_dict(self):
-        return {'mean': self.mean,
-                'std': self.std}
-
-    def load_state_dict(self, state_dict):
-        self.mean = state_dict['mean']
-        self.std = state_dict['std']
-
-
-def get_all_backbones():
+def get_all_extractors():
     model_paths = {
         'mp_eform':
             'cgcnn/data/saved_extractors/2022-01-26-15:48_singletask_eform_32hfealen_best_model.pth.tar',
@@ -913,23 +866,23 @@ def get_all_backbones():
             'cgcnn/data/saved_extractors/2022-01-26-19:08_singletask_gvrh_32hfealen_best_model.pth.tar',
         'mp_kvrh':
             'cgcnn/data/saved_extractors/2022-03-27-15:50_singletask_32hfl_mpkvrh_best_model.pth.tar',
-        'weighted_n_e_cond':
+        'weighted_n_e_cond':  # n-type electronic conductivity
             'cgcnn/data/saved_extractors/2022-02-03-21:12_singletask_necond_32hfealen_sgd_weightedsampling_best_model.pth.tar',
-        'weighted_p_e_cond':
+        'weighted_p_e_cond':  # p-type electronic conductivity
             'cgcnn/data/saved_extractors/2022-02-04-00:05_singletask_pecond_32hfealen_sgd_weightedsampling_best_model.pth.tar',
-        'weighted_n_th_cond':
+        'weighted_n_th_cond':  # n-type electronic thermal conductivity
             'cgcnn/data/saved_extractors/2022-02-04-03:02_singletask_nthcond_32hfealen_sgd_weightedsampling_best_model.pth.tar',
-        'weighted_p_th_cond':
+        'weighted_p_th_cond':  # p-type electronic thermal conductivity
             'cgcnn/data/saved_extractors/2022-02-04-05:50_singletask_pthcond_32hfealen_sgd_weightedsampling_best_model.pth.tar',
         'p_Seebeck':
             'cgcnn/data/saved_extractors/2022-02-26-04:44_singletask_32hfl_pSeebeck_best_model.pth.tar',
         'n_Seebeck':
             'cgcnn/data/saved_extractors/2022-02-26-02:00_singletask_32hfl_nSeebeck_best_model.pth.tar',
-        'n_avg_eff_mass':
+        'n_avg_eff_mass':  # n-type average electron effective mass
             'cgcnn/data/saved_extractors/2022-02-25-19:05_singletask_32hfl_nEffMass_best_model.pth.tar',
-        'p_avg_eff_mass':
+        'p_avg_eff_mass':  # p-type average electron effective mass
             'cgcnn/data/saved_extractors/2022-02-25-19:06_singletask_32hfl_pEffMass_best_model.pth.tar',
-        'castelli_eform':
+        'castelli_eform':  # perovskite formation energies
             'cgcnn/data/saved_extractors/2022-03-03-05:32_singletask_castelliEform_32hfl_best_model.pth.tar',
         'jarvis_eform':
             'cgcnn/data/saved_extractors/2022-02-25-18:09_singletask_32hfl_jarvisEform_best_model.pth.tar',
@@ -945,6 +898,16 @@ def get_all_backbones():
     return model_paths
 
 
+def move_batch_to_cuda(structures, labels):
+    structures = (structures[0].cuda(non_blocking=True),
+                  structures[1].cuda(non_blocking=True),
+                  structures[2].cuda(non_blocking=True),
+                  [crys_idx.cuda(non_blocking=True) for crys_idx in
+                   structures[3]])
+    labels = labels.cuda(non_blocking=True)
+    return structures, labels
+
+
 if __name__ == '__main__':
     num_layers_to_unfreeze = 1  # number of backbone layers to unfreeze
     n_head_layers = 3  # number of head layers to train from scratch
@@ -952,57 +915,43 @@ if __name__ == '__main__':
 
     small_dataset = 'jarvis_2d_exfoliation' #'piezoelectric_tensor' #'jarvis_2d_exfoliation'
 
-    # 'backbone_name' is irrelevant if option != 'single'
-    backbone_name = 'mp_eform' #'mp_kvrh' #'mp_eform' #'jarvis_gvrh'
+    extractor_name = 'mp_eform' #'mp_kvrh' #'mp_eform' #'jarvis_gvrh'
 
-    option = 'single'  #'concat'  #'concat'  #'add'  # 'single'  # 'ensemble'
+    option = 'add_k'  # 'pairwise_TL'  #'concat'  # 'single'  # 'ensemble'
 
-    print('------ seed 0 -------')
-    test1, val1 = main(
-        dataset_name=small_dataset, n_head_layers=n_head_layers,
-        head='sanity', layer_to_extract_from=layer_to_extract_from,
-        partition_seed=0, num_layers_to_unfreeze=num_layers_to_unfreeze,
-        backbone_name=backbone_name, option=option)
+    test_maes, normalized_val_maes = [], []
+    for seed in list(range(5)):
+        print('------ seed {} -------'.format(str(seed)))
+        test_mae, normalized_val_mae = main(
+            dataset_name=small_dataset, n_head_layers=n_head_layers,
+            layer_to_extract_from=layer_to_extract_from,
+            seed=seed, num_layers_to_unfreeze=num_layers_to_unfreeze,
+            extractor_name=extractor_name, option=option)
+        test_maes.append(test_mae)
+        normalized_val_maes.append(normalized_val_mae)
 
-    print('------ seed 1 -------')
-    test2, val2 = main(
-        dataset_name=small_dataset, n_head_layers=n_head_layers,
-        head='sanity', layer_to_extract_from=layer_to_extract_from,
-        partition_seed=1, num_layers_to_unfreeze=num_layers_to_unfreeze,
-        backbone_name=backbone_name, option=option)
+    avg_normalized_val_mae = np.mean(normalized_val_maes)
+    normalized_val_mae_stdev = np.std(normalized_val_maes)
+    print(avg_normalized_val_mae)
+    print(normalized_val_mae_stdev)
 
-    print('------ seed 2 --------')
-    test3, val3 = main(
-        dataset_name=small_dataset, n_head_layers=n_head_layers,
-        head='sanity', layer_to_extract_from=layer_to_extract_from,
-        partition_seed=2, num_layers_to_unfreeze=num_layers_to_unfreeze,
-        backbone_name=backbone_name, option=option)
+    test_avg = np.mean(test_maes)
+    test_std = np.std(test_maes)
 
-    print('------ seed 3 --------')
-    test4, val4 = main(
-        dataset_name=small_dataset, n_head_layers=n_head_layers,
-        head='sanity', layer_to_extract_from=layer_to_extract_from,
-        partition_seed=3, num_layers_to_unfreeze=num_layers_to_unfreeze,
-        backbone_name=backbone_name, option=option)
+    if not args.filename_prefix:
+        from datetime import date
+        import os
+        today = str(date.today())
+        if not os.path.exists(today):
+            os.makedirs(today)
+        filename_prefix = today + '/'
+    else:
+        filename_prefix = args.filename_prefix
 
-    print('------ seed 4 --------')
-    test5, val5 = main(
-        dataset_name=small_dataset, n_head_layers=n_head_layers,
-        head='sanity', layer_to_extract_from=layer_to_extract_from,
-        partition_seed=4, num_layers_to_unfreeze=num_layers_to_unfreeze,
-        backbone_name=backbone_name, option=option)
-
-    avg = np.mean([val1, val2, val3, val4, val5])
-    stdev = np.std([val1, val2, val3, val4, val5])
-    print(avg)
-    print(stdev)
-
-    test_avg = np.mean([test1, test2, test3, test4, test5])
-    test_std = np.std([test1, test2, test3, test4, test5])
-
-    result_filename = args.filename_prefix + '_result.csv'
+    result_filename = filename_prefix + '_result.csv'
     result_file = open(result_filename, 'w', encoding='utf-8')
     writer = csv.writer(result_file)
     writer.writerow(['best val mae / stl val mae', '+/-', 'test_mae', '+/-'])
-    writer.writerow([avg, stdev, test_avg, test_std])
+    writer.writerow([avg_normalized_val_mae, normalized_val_mae_stdev,
+                     test_avg, test_std])
     result_file.close()
