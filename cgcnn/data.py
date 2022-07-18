@@ -290,7 +290,6 @@ class CIFDataWrapper_without_shuffling(Dataset):
             radius (float): Cutoff radius for searching neighbors.
             dmin (int): The minimum distance for constructing GaussianDistance.
             step (float): The step size for constructing GaussianDistance.
-            random_seed (int): Random seed for shuffling the dataset.
         """
         self.max_num_nbr = max_num_nbr
         self.radius = radius
