@@ -44,7 +44,8 @@ parser.add_argument(
          'into a single vector. ')
 parser.add_argument('--extractor_name', type=str, default=None,
                     help='If --option is \'pairwise_TL\', then'
-                    ' \'--extractor_name\' specifies the extractor.')
+                    ' \'--extractor_name\' specifies the extractor. See '
+                         'the get_all_extractors() function for possible names.')
 parser.add_argument('--use_all_extractors', action='store_true',
                     help='If True, use all 18 backbones instead of 3 manually '
                          'chosen ones.')
@@ -75,7 +76,6 @@ def main(dataset_name='expt_eform', n_head_layers=3,
         num_layers_to_unfreeze = args.num_layers_to_unfreeze
         extractor_name = args.extractor_name
         option = args.option
-        test = args.test
 
         print('dataset: {}'.format(dataset_name))
         print('num layers learned from scratch: {}'.format(n_head_layers))
@@ -84,7 +84,6 @@ def main(dataset_name='expt_eform', n_head_layers=3,
         print('num_layers_to_unfreeze: {}'.format(num_layers_to_unfreeze))
         print('extractor name: {}'.format(extractor_name))
         print('option: {}'.format(option))
-        print('test: {}'.format(test))
         print('use_all_extractors: {}'.format(args.use_all_extractors))
         print('optim: {}'.format(args.optim))
         if option == 'add_k':
@@ -97,13 +96,11 @@ def main(dataset_name='expt_eform', n_head_layers=3,
         today = str(date.today())
         if not os.path.exists(today):
             os.makedirs(today)
-
-        torch.manual_seed(seed)
-
         filename_prefix = today + '/'  # to prepend to filenames of results
     else:
         filename_prefix = args.filename_prefix
 
+    torch.manual_seed(seed)
     cuda = torch.cuda.is_available()
     with open('cgcnn/data/sample-regression/atom_init.json') as atom_init_json:
         atom_init_dict = json.load(atom_init_json)
@@ -301,7 +298,7 @@ def main(dataset_name='expt_eform', n_head_layers=3,
     loss_regularizer = torch.tensor([0.], device='cuda' if cuda else 'cpu')
 
     early_stopping_n_epochs = 500
-    for epoch in range(1000):  # 1000 epochs
+    for epoch in range(2):  # 1000 epochs
         for structures, labels, _ in train_dl:
             train(structures, labels, model, cuda, option, extractors,
                   normalizer, train_loss_meter, optimizer, ensembled_backbone,
@@ -771,7 +768,7 @@ def get_parameters_to_finetune(
                 layer_to_extract_from == 'penultimate_fc':
             # get the next layer, then continue:
             layers_to_unfreeze.extend(
-                list(backbone.dense_heads.fcs[-(layers_unfrozen+1)].parameters()))
+                list(backbone.fcs[-(layers_unfrozen+1)].parameters()))
             layers_unfrozen += 1
 
         elif layers_unfrozen < backbone.n_h and \
@@ -783,7 +780,7 @@ def get_parameters_to_finetune(
 
             # get the next layer
             layers_to_unfreeze.extend(
-                list(backbone.dense_heads.conv_to_fc.parameters()))
+                list(backbone.conv_to_fc.parameters()))
             layers_unfrozen += 1
 
         elif layers_unfrozen < backbone.n_h + 1 and \
@@ -912,11 +909,8 @@ if __name__ == '__main__':
     num_layers_to_unfreeze = 1  # number of backbone layers to unfreeze
     n_head_layers = 3  # number of head layers to train from scratch
     layer_to_extract_from = 'conv'
-
-    small_dataset = 'jarvis_2d_exfoliation' #'piezoelectric_tensor' #'jarvis_2d_exfoliation'
-
-    extractor_name = 'mp_eform' #'mp_kvrh' #'mp_eform' #'jarvis_gvrh'
-
+    small_dataset = 'jarvis_2d_exfoliation'  #'piezoelectric_tensor' #'jarvis_2d_exfoliation'
+    extractor_name = 'mp_eform'  #'mp_kvrh' #'mp_eform' #'jarvis_gvrh'
     option = 'add_k'  # 'pairwise_TL'  #'concat'  # 'single'  # 'ensemble'
 
     test_maes, normalized_val_maes = [], []
@@ -944,11 +938,11 @@ if __name__ == '__main__':
         today = str(date.today())
         if not os.path.exists(today):
             os.makedirs(today)
-        filename_prefix = today + '/'
+        filename_prefix = today + '/' + today + '_'
     else:
         filename_prefix = args.filename_prefix
 
-    result_filename = filename_prefix + '_result.csv'
+    result_filename = filename_prefix + '_results.csv'
     result_file = open(result_filename, 'w', encoding='utf-8')
     writer = csv.writer(result_file)
     writer.writerow(['best val mae / stl val mae', '+/-', 'test_mae', '+/-'])

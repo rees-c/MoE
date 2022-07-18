@@ -49,7 +49,7 @@ parser.add_argument('--epochs', default=1000, type=int, metavar='N',
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
 parser.add_argument('-b', '--batch_size', default=250, type=int,
-                    metavar='N', help='mini-batch size (default: 256)')
+                    metavar='N', help='mini-batch size (default: 250)')
 parser.add_argument('--lr', '--learning-rate', default=0.02, type=float,
                     metavar='LR', help='initial learning rate (default: '
                                        '0.01)')
@@ -830,7 +830,7 @@ def initialize_kwargs(**cgcnn_kwargs):
         {"orig_atom_fea_len": cgcnn_kwargs.get("orig_atom_fea_len", 92),
          "nbr_fea_len": cgcnn_kwargs.get("nbr_fea_len", 41),
          "n_conv": cgcnn_kwargs.get("n_conv", 4),
-         "h_fea_len": cgcnn_kwargs.get("h_fea_len", 128),
+         "h_fea_len": cgcnn_kwargs.get("h_fea_len", 32),
          "n_h": cgcnn_kwargs.get("n_h", 1),
          "atom_fea_len": cgcnn_kwargs.get("atom_fea_len", 64)}
 
