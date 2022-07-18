@@ -280,7 +280,7 @@ class CIFDataWrapper_without_shuffling(Dataset):
     use this wrapper instead of CIFData.
     """
     def __init__(self, X, y, atom_init_fea, max_num_nbr=12, radius=8,
-                 dmin=0, step=0.2, random_seed=123):
+                 dmin=0, step=0.2):
         """
         Args:
             X (Series/list): An iterable of pymatgen Structure objects.
