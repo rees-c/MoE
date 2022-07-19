@@ -295,10 +295,9 @@ def main(dataset_name='expt_eform', n_head_layers=3,
     num_batches_since_improvement = 0
     best_model_filename = filename_prefix + '_' + dataset_name + '_seed' + \
         str(seed) + '_best_model.pth'
-    loss_regularizer = torch.tensor([0.], device='cuda' if cuda else 'cpu')
 
     early_stopping_n_epochs = 500
-    for epoch in range(2):  # 1000 epochs
+    for epoch in range(1000):  # 1000 epochs
         for structures, labels, _ in train_dl:
             train(structures, labels, model, cuda, option, extractors,
                   normalizer, train_loss_meter, optimizer, ensembled_backbone,
@@ -407,7 +406,7 @@ def train(structures, labels, model, cuda, option, extractors,
     if cuda:
         structures, labels = move_batch_to_cuda(structures, labels)
 
-    loss_regularizer = torch.tensor([0.])
+    loss_regularizer = torch.tensor([0.], device='cuda' if cuda else 'cpu')
 
     # get predictions
     if option == 'add_k' and args.n_pseudo_attn_heads > 0:
