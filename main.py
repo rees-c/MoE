@@ -104,7 +104,7 @@ def main(dataset_name='expt_eform', n_head_layers=3,
     cuda = torch.cuda.is_available()
     with open('cgcnn/data/sample-regression/atom_init.json') as atom_init_json:
         atom_init_dict = json.load(atom_init_json)
-    _, _, dataset_kwargs, _, _, _ = initialize_kwargs()
+    _, dataset_kwargs = initialize_kwargs()
 
     # All our feature extractor models have the same architecture
     hyperparameter_file = open('cgcnn/data/hyperparameters.json')
@@ -516,7 +516,7 @@ def get_extractor(checkpoint_path=None, layer_to_extract_from='conv',
         identity. (torch.nn.module)
     """
     if model_kwargs is None:
-        _, model_kwargs, _, _, _, _ = initialize_kwargs()
+        model_kwargs, _ = initialize_kwargs()
     model = CrystalGraphConvNet(**model_kwargs)
 
     if checkpoint_path is not None:
