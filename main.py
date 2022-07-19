@@ -292,7 +292,7 @@ def main(dataset_name='expt_eform', n_head_layers=3,
     train_loss_meter = AverageMeter(tensor=True, device='cuda' if cuda else 'cpu')
     val_loss_meter = AverageMeter(tensor=True, device='cuda' if cuda else 'cpu')
     best_val_mae = 1e10
-    num_batches_since_improvement = 0
+    num_epochs_since_improvement = 0
     best_model_filename = filename_prefix + '_' + dataset_name + '_seed' + \
         str(seed) + '_best_model.pth'
 
@@ -315,7 +315,7 @@ def main(dataset_name='expt_eform', n_head_layers=3,
         lr_scheduler.step()
         val_mae = float(val_mae_meter.avg)
         if val_mae < best_val_mae:
-            num_batches_since_improvement = 0
+            num_epochs_since_improvement = 0
             best_val_mae = val_mae
 
             if option == 'add_k' and args.n_pseudo_attn_heads > 0:
@@ -335,7 +335,7 @@ def main(dataset_name='expt_eform', n_head_layers=3,
                 'scheduler_state_dict': lr_scheduler.state_dict(),
                 'best_val_mae': best_val_mae}, best_model_filename)
         else:
-            num_batches_since_improvement += 1
+            num_epochs_since_improvement += 1
 
         loss_file = open(losses_filename, 'a', encoding='utf-8')
         writer = csv.writer(loss_file)
@@ -344,7 +344,7 @@ def main(dataset_name='expt_eform', n_head_layers=3,
             float(val_mae / stl_val_mae)])
         loss_file.close()
 
-        if num_batches_since_improvement > early_stopping_n_epochs:  # early stopping
+        if num_epochs_since_improvement > early_stopping_n_epochs:  # early stopping
             print('best val mae / stl val mae: {}'.format(
                 best_val_mae / stl_val_mae))
             break
@@ -491,9 +491,9 @@ def evaluate(structures, labels, model, cuda, option, extractors, normalizer,
             normalizer.denorm(predictions) - labels))
 
         if not test:
-            return loss.clone(), mae.clone()
+            return loss.detach().clone(), mae.detach().clone()
         else:
-            return mae.clone()
+            return mae.detach().clone()
 
 
 def get_extractor(checkpoint_path=None, layer_to_extract_from='conv',
