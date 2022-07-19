@@ -175,12 +175,12 @@ def main(dataset_name='expt_eform', n_head_layers=3,
 
     df['structure'].reset_index(drop=True, inplace=True)
     df[target_name].reset_index(drop=True, inplace=True)
-    structure_graphs, targets, idxs = pre_extract_structure_graphs(
+    structure_graphs, targets, _ = pre_extract_structure_graphs(
         X=df['structure'].tolist(),
         y=df[target_name].tolist(),
         atom_init_fea=atom_init_dict)
 
-    task_dataset = saved_structure_graphs_dataset(structure_graphs, targets)
+    task_dataset = StructureGraphsDataset(structure_graphs, targets)
 
     # Get train/val/test indices from file
     with open(
@@ -840,7 +840,7 @@ def get_parameters_to_finetune(
     return layers_to_unfreeze
 
 
-class saved_structure_graphs_dataset(torch.utils.data.Dataset):
+class StructureGraphsDataset(torch.utils.data.Dataset):
     def __init__(self, structure_graphs, targets):
         self.structure_graphs = structure_graphs
         self.labels = torch.tensor(targets)
