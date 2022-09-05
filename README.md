@@ -1,8 +1,7 @@
-# MoEs for materials
+# Mixture of Experts for materials science
 
 This repo contains code accompanying the paper, [Towards overcoming data 
-scarcity: unifying models and datasets with a mixture of experts framework](
-https://arxiv.org/abs/1703.03400).
+scarcity in materials science: unifying models and datasets with a mixture of experts framework]().
 
 ## Dependencies
 
