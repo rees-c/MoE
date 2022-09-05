@@ -185,7 +185,7 @@ def main(dataset_name='expt_eform', n_head_layers=3,
     # Get train/val/test indices from file
     with open(
             'data/matminer/saved_partition_indices/'
-            'all_task_partition_indices_seed' + str(seed) + '.pkl', 'rb') as f:
+            'task_partition_indices_seed' + str(seed) + '.pkl', 'rb') as f:
         dict_of_task_indices = pickle.load(f)
 
     train_indices, val_indices, test_indices = \
