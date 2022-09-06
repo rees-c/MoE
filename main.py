@@ -295,7 +295,7 @@ def main(dataset_name='expt_eform', n_head_layers=3,
         str(seed) + '_best_model.pth'
 
     early_stopping_n_epochs = 500
-    for epoch in range(3):  # 1000 epochs
+    for epoch in range(1000):  # 1000 epochs
         for structures, labels, _ in train_dl:
             train(structures, labels, model, cuda, option, extractors,
                   normalizer, train_loss_meter, optimizer, ensembled_backbone,
