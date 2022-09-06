@@ -829,6 +829,4 @@ def initialize_kwargs(**cgcnn_kwargs):
 
 
 if __name__ == '__main__':
-    import os
-    os.chdir('/Users/reeschang/PycharmProjects/MoE')
     main()
