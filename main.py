@@ -1,5 +1,4 @@
 import json
-import pickle
 import csv
 import argparse
 import sys
@@ -27,7 +26,6 @@ parser.add_argument('--dataset_name', type=str, default=None,
 parser.add_argument('--n_head_layers', type=int, default=3)
 parser.add_argument('--layer_to_extract_from', type=str, default='conv',
                     help='conv-2, conv, first_fc, or penultimate_fc')
-parser.add_argument('--seed', type=int, default=0)
 parser.add_argument('--num_layers_to_unfreeze', type=int, default=1,
                     help='Number of extractor layers to fine-tune.')
 parser.add_argument(
@@ -185,8 +183,8 @@ def main(dataset_name='expt_eform', n_head_layers=3,
     # Get train/val/test indices from file
     with open(
             'data/matminer/saved_partition_indices/'
-            'task_partition_indices_seed' + str(seed) + '.pkl', 'rb') as f:
-        dict_of_task_indices = pickle.load(f)
+            'task_partition_indices_seed' + str(seed) + '.json', 'rb') as f:
+        dict_of_task_indices = json.load(f)
 
     train_indices, val_indices, test_indices = \
         dict_of_task_indices[dataset_name]
@@ -297,7 +295,7 @@ def main(dataset_name='expt_eform', n_head_layers=3,
         str(seed) + '_best_model.pth'
 
     early_stopping_n_epochs = 500
-    for epoch in range(1000):  # 1000 epochs
+    for epoch in range(3):  # 1000 epochs
         for structures, labels, _ in train_dl:
             train(structures, labels, model, cuda, option, extractors,
                   normalizer, train_loss_meter, optimizer, ensembled_backbone,

@@ -161,7 +161,7 @@ def main():
 
     if args.path_to_partition_indices:
         with open(args.path_to_partition_indices, 'rb') as f:
-            dict_of_task_indices = pickle.load(f)
+            dict_of_task_indices = json.load(f)
 
         task_name = args.property_to_train
         train_indices, val_indices, test_indices = \
@@ -173,49 +173,8 @@ def main():
             X=df['structure'].tolist(),
             y=df[dataset_info['target_name']].tolist(),
             atom_init_fea=atom_init_dict, **dataset_kwargs)
-
     else:
-        train_indices, val_indices, test_indices = None, None, None
-        df = df.sample(frac=1).reset_index(drop=False)  # shuffle the df
-
-        if args.train_ratio is None or args.val_ratio is None or \
-                args.test_ratio is None:
-            raise NotImplementedError(
-                'train, val, and test ratios are required.')
-        indices_of_shuffled_data = list(range(len(df.index)))
-        total_size = len(df.index)
-        train_size = int(args.train_ratio * total_size)
-        val_size = int(args.val_ratio * total_size)
-        test_size = int(args.test_ratio * total_size)
-        train_indices = indices_of_shuffled_data[:train_size]
-        val_indices = \
-            indices_of_shuffled_data[-(val_size + test_size):-test_size]
-        test_indices = indices_of_shuffled_data[-test_size:]
-
-        train_indices_of_unshuffled_data = list(
-            df['index'][train_indices])
-        val_indices_of_unshuffled_data = list(
-            df['index'][val_indices])
-        test_indices_of_unshuffled_data = list(
-            df['index'][test_indices])
-
-        torch.save(
-            train_indices_of_unshuffled_data,
-            filename_prefix + '_' + args.property_to_train +
-            '_trainIndices_seed' + str(args.seed))
-        torch.save(
-            val_indices_of_unshuffled_data,
-            filename_prefix + '_' + args.property_to_train + '_valIndices_seed'
-            + str(args.seed))
-        torch.save(
-            test_indices_of_unshuffled_data,
-            filename_prefix + '_' + args.property_to_train +
-            '_testIndices_seed' + str(args.seed))
-
-        dataset = CIFDataWrapper_without_shuffling(
-            X=df['structure'].tolist(),
-            y=df[dataset_info['target_name']].tolist(),
-            atom_init_fea=atom_init_dict, **dataset_kwargs)
+        raise AttributeError
 
     learning_tasks[args.property_to_train] = {
         'dataset': dataset,
@@ -840,8 +799,7 @@ def initialize_kwargs(**cgcnn_kwargs):
          "max_num_nbr": cgcnn_kwargs.get("max_num_nbr", 12),
          "radius": cgcnn_kwargs.get("radius", 8),
          "dmin": cgcnn_kwargs.get("dmin", 0),
-         "step": cgcnn_kwargs.get("step", 0.2),
-         "random_seed": cgcnn_kwargs.get("random_seed", 123)}
+         "step": cgcnn_kwargs.get("step", 0.2)}
 
     # Initialize dataloader kwargs
     dataloader_kwargs = \

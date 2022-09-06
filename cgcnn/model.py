@@ -94,6 +94,7 @@ class CrystalGraphConvNet(nn.Module):
         """
         super(CrystalGraphConvNet, self).__init__()
         self.classification = classification
+        self.n_conv = n_conv
         self.embedding = nn.Linear(orig_atom_fea_len, atom_fea_len)
         self.convs = nn.ModuleList([ConvLayer(atom_fea_len=atom_fea_len,
                                     nbr_fea_len=nbr_fea_len)
