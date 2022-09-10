@@ -181,9 +181,8 @@ def main(dataset_name='expt_eform', n_head_layers=3,
     task_dataset = StructureGraphsDataset(structure_graphs, targets)
 
     # Get train/val/test indices from file
-    with open(
-            'data/matminer/saved_partition_indices/'
-            'task_partition_indices_seed' + str(seed) + '.json', 'rb') as f:
+    with open('data/matminer/saved_partition_indices/'
+              'task_partition_indices_seed' + str(seed) + '_correctedExptEf.json', 'rb') as f:
         dict_of_task_indices = json.load(f)
 
     train_indices, val_indices, test_indices = \
@@ -295,7 +294,7 @@ def main(dataset_name='expt_eform', n_head_layers=3,
         str(seed) + '_best_model.pth'
 
     early_stopping_n_epochs = 500
-    for epoch in range(1000):  # 1000 epochs
+    for epoch in range(2):  # 1000 epochs
         for structures, labels, _ in train_dl:
             train(structures, labels, model, cuda, option, extractors,
                   normalizer, train_loss_meter, optimizer, ensembled_backbone,

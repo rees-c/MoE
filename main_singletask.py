@@ -8,7 +8,6 @@ import time
 import json
 import random
 import csv
-import pickle
 
 import numpy as np
 import pandas as pd
@@ -16,7 +15,6 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Subset
 import torch.optim as optim
-# from sklearn import metrics
 from torch.autograd import Variable
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
