@@ -220,7 +220,8 @@ def main(dataset_name='expt_eform', n_head_layers=3,
 
     ensembled_backbone = None
     prediction_ensembler = None
-    models = None
+    model_heads = None
+    model = None
     if option == 'add_k' and args.n_pseudo_attn_heads > 0:
         assert args.k_extractor_gating > 0
         model = MultiheadedMixtureOfExpertsModel(
@@ -237,13 +238,13 @@ def main(dataset_name='expt_eform', n_head_layers=3,
             {'params': model.parameters()},
             {'params': ensembled_backbone.non_extractor_parameters()}]
     elif option == 'ensemble':
-        models = []
+        model_heads = nn.ModuleList([])
         for _ in extractors:
-            model = MultilayerPerceptronHead(
+            model_head = MultilayerPerceptronHead(
                 num_layers=n_head_layers, input_dim=n_features)
-            models.append(model)
+            model_heads.append(model_head)
         prediction_ensembler = EnsemblePredictor(len(extractors))
-        param_groups = [{'params': model.parameters()},
+        param_groups = [{'params': model_heads.parameters()},
                         {'params': prediction_ensembler.parameters()}]
 
     if num_layers_to_unfreeze > 0:
@@ -261,7 +262,7 @@ def main(dataset_name='expt_eform', n_head_layers=3,
         else:
             for i, extractor in enumerate(extractors):
                 extractor.to('cuda')
-                models[i].to('cuda')
+                model_heads[i].to('cuda')
             prediction_ensembler.to('cuda')
 
     if args.optim == 'SGD':
@@ -294,16 +295,16 @@ def main(dataset_name='expt_eform', n_head_layers=3,
         str(seed) + '_best_model.pth'
 
     early_stopping_n_epochs = 500
-    for epoch in range(1000):  # 1000 epochs
+    for epoch in range(2):  # 1000 epochs
         for structures, labels, _ in train_dl:
-            train(structures, labels, model, cuda, option, extractors,
-                  normalizer, train_loss_meter, optimizer, ensembled_backbone,
-                  prediction_ensembler, models)
+            train(structures, labels, model, cuda, option, normalizer,
+                  train_loss_meter, optimizer, extractors, ensembled_backbone,
+                  prediction_ensembler, model_heads)
 
         for structures, labels, _ in val_dl:
             val_loss, val_mae = evaluate(
-                structures, labels, model, cuda, option, extractors, normalizer,
-                ensembled_backbone, prediction_ensembler, models,
+                structures, labels, model, cuda, option, normalizer, extractors,
+                ensembled_backbone, prediction_ensembler, model_heads,
                 test=False)
 
             val_loss_meter.update(val_loss.detach().clone(), labels.size(0))
@@ -323,7 +324,7 @@ def main(dataset_name='expt_eform', n_head_layers=3,
                 state_dicts = []
                 for i in range(len(extractors)):
                     state_dicts.append(
-                        (extractors[i].state_dict(), models[i].state_dict()))
+                        (extractors[i].state_dict(), model_heads[i].state_dict()))
             torch.save({
                 'epoch': epoch,
                 'option': option,
@@ -366,12 +367,12 @@ def main(dataset_name='expt_eform', n_head_layers=3,
         state_dicts = checkpoint['model_state_dict']
         for i, (backbone_dict, model_dict) in enumerate(state_dicts):
             extractors[i].load_state_dict(backbone_dict)
-            models[i].load_state_dict(model_dict)
+            model_heads[i].load_state_dict(model_dict)
 
     for structures, labels, _ in test_dl:
         test_mae = evaluate(
-            structures, labels, model, cuda, option, extractors, normalizer,
-            ensembled_backbone, prediction_ensembler, models, test=True)
+            structures, labels, model, cuda, option, normalizer, extractors,
+            ensembled_backbone, prediction_ensembler, model_heads, test=True)
 
         test_mae_meter.update(test_mae.detach().clone(), labels.size(0))
 
@@ -380,9 +381,9 @@ def main(dataset_name='expt_eform', n_head_layers=3,
     return float(test_mae_meter.avg), float(best_val_mae / stl_val_mae)
 
 
-def train(structures, labels, model, cuda, option, extractors,
-          normalizer, train_loss_meter, optimizer, ensembled_backbone=None,
-          prediction_ensembler=None, models=None):
+def train(structures, labels, model, cuda, option, normalizer, train_loss_meter,
+          optimizer, extractors=None, ensembled_backbone=None,
+          prediction_ensembler=None, model_heads=None):
     """
 
     :param structures:
@@ -397,9 +398,18 @@ def train(structures, labels, model, cuda, option, extractors,
     :param ensembled_backbone: Only used if 'option' == 'pairwise_TL' or
         'concat'
     :param prediction_ensembler:  Only used if 'option' == 'ensemble'
-    :param models: Only used if 'option' == 'ensemble'
+    :param model_heads: Only used if 'option' == 'ensemble'
     :return:
     """
+
+    if model is not None:
+        model.train()
+    if ensembled_backbone is not None:
+        ensembled_backbone.train()
+    if extractors is not None:
+        for extractor in extractors:
+            extractor.train()
+
     if cuda:
         structures, labels = move_batch_to_cuda(structures, labels)
 
@@ -413,12 +423,12 @@ def train(structures, labels, model, cuda, option, extractors,
         features = ensembled_backbone(structures)
         predictions = model(features)
     elif option == 'ensemble':
-        assert models is not None
+        assert model_heads is not None
         assert prediction_ensembler is not None
         predictions_across_heads = []
         for i, extractor in enumerate(extractors):
             features = extractor(*structures)
-            predictions = models[i](features)
+            predictions = model_heads[i](features)
             if predictions.dim() == 2:
                 predictions = predictions.squeeze(1)
             predictions_across_heads.append(predictions)
@@ -439,8 +449,8 @@ def train(structures, labels, model, cuda, option, extractors,
     optimizer.step()
 
 
-def evaluate(structures, labels, model, cuda, option, extractors, normalizer,
-             ensembled_backbone=None, prediction_ensembler=None, models=None,
+def evaluate(structures, labels, model, cuda, option, normalizer, extractors=None,
+             ensembled_backbone=None, prediction_ensembler=None, model_heads=None,
              test=False):
     """
 
@@ -454,24 +464,33 @@ def evaluate(structures, labels, model, cuda, option, extractors, normalizer,
     :param ensembled_backbone: Only used if 'option' == 'pairwise_TL' or
         'concat'
     :param prediction_ensembler:  Only used if 'option' == 'ensemble'
-    :param models: Only used if 'option' == 'ensemble'
+    :param model_heads: Only used if 'option' == 'ensemble'
     :param test:
     :return:
     """
+
+    if model is not None:
+        model.eval()
+    if ensembled_backbone is not None:
+        ensembled_backbone.eval()
+    if extractors is not None:
+        for extractor in extractors:
+            extractor.eval()
+
     if cuda:
         structures, labels = move_batch_to_cuda(structures, labels)
 
     with torch.no_grad():
         if option == 'add_k' and args.n_pseudo_attn_heads > 0:
             predictions, _ = model(structures)
-        elif option != 'ensemble':
+        elif option != 'ensemble':  # concat or pairwise_TL
             features = ensembled_backbone(structures)
             predictions = model(features)
-        else:
+        else:  # ensemble final predictions of separate models
             predictions_across_heads = []
             for i, extractor in enumerate(extractors):
                 features = extractor(*structures)
-                predictions = models[i](features)
+                predictions = model_heads[i](features)
                 if predictions.dim() == 2:
                     predictions = predictions.squeeze(1)
                 predictions_across_heads.append(predictions)

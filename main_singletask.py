@@ -222,8 +222,6 @@ def main():
             test_indices=test_indices
         )
 
-        # Split into train_dl for metatraining and val_dl for (optional) final
-        # fine tuning
         learning_tasks[learning_task_name]['train_dl'] = train_loader
         learning_tasks[learning_task_name]['val_dl'] = val_loader
 
