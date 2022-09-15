@@ -9,7 +9,7 @@ This package requires:
 - PyTorch
 - pymatgen
 
-It has been tested with python==3.8, pytorch==1.9.1 and pymatgen==2022.5.19. See
+It has been tested with python==3.8, pytorch==1.10.1 and pymatgen==2022.3.29. See
 below for example installation.
 
 ```
@@ -17,9 +17,9 @@ conda create -n moe python==3.8
 
 conda activate moe
 
-conda install pytorch==1.9.1 torchvision==0.10.1 torchaudio==0.9.1 -c pytorch
+conda install pytorch==1.10.1 torchvision==0.11.2 torchaudio==0.10.1 cudatoolkit=11.3 -c pytorch -c conda-forge
 
-conda install --channel conda-forge pymatgen
+conda install --channel conda-forge pymatgen=2022.3.29
 ```
 
 ## Usage
