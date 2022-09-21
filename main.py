@@ -110,7 +110,7 @@ def main(dataset_name='expt_eform', n_head_layers=3,
     model_kwargs = hyperparameter_dict['model_kwargs']
 
     # ----------------------- Get pre-trained extractor ------------------------
-    if args.use_all_extractors:
+    if args.use_all_extractors or option == 'pairwise_TL':
         model_paths = get_all_extractors()
     else:  # use hand-picked backbones
         if dataset_name == 'jarvis_2d_exfoliation':
