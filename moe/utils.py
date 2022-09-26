@@ -3,6 +3,97 @@ import copy
 import torch
 
 
+def get_parameters_to_finetune(
+        backbone, num_layers_to_unfreeze, layer_to_extract_from='conv'):
+
+    for n, p in backbone.named_parameters():
+        p.requires_grad = False
+
+    if layer_to_extract_from == 'conv':
+        num_layers_to_unfreeze += backbone.n_h
+    else:
+        raise NotImplementedError
+
+    layers_unfrozen = 0
+    layers_to_unfreeze = []
+    while layers_unfrozen < num_layers_to_unfreeze:
+        if layers_unfrozen < backbone.n_h-1 and \
+                layer_to_extract_from == 'penultimate_fc':
+            # get the next layer, then continue:
+            layers_to_unfreeze.extend(
+                list(backbone.fcs[-(layers_unfrozen+1)].parameters()))
+            layers_unfrozen += 1
+
+        elif layers_unfrozen < backbone.n_h and \
+                (layer_to_extract_from == 'first_fc' or
+                 layer_to_extract_from == 'penultimate_fc'):
+
+            if layer_to_extract_from == 'first_fc':
+                layers_unfrozen += backbone.n_h-1
+
+            # get the next layer
+            layers_to_unfreeze.extend(
+                list(backbone.conv_to_fc.parameters()))
+            layers_unfrozen += 1
+
+        elif layers_unfrozen < backbone.n_h + 1 and \
+                (layer_to_extract_from == 'conv' or
+                 layer_to_extract_from == 'first_fc' or
+                 layer_to_extract_from == 'penultimate_fc'):
+            # get the next layer
+            print('UNFROZE backbone.convs[{}]'.format(str(-1)))
+
+            if layer_to_extract_from == 'conv':
+                layers_unfrozen += backbone.n_h
+
+            layers_to_unfreeze.extend(
+                list(backbone.convs[-1].fc_full.parameters()))
+            layers_to_unfreeze.extend(
+                list(backbone.convs[-1].bn1.parameters()))
+            layers_to_unfreeze.extend(
+                list(backbone.convs[-1].bn2.parameters()))
+
+            layers_unfrozen += 1
+
+        elif layers_unfrozen < backbone.n_h + backbone.n_conv and \
+                (layer_to_extract_from == 'conv-2' or
+                 layer_to_extract_from == 'conv' or
+                 layer_to_extract_from == 'first_fc' or
+                 layer_to_extract_from == 'penultimate_fc'):
+
+            conv_to_grab = -(layers_unfrozen - backbone.n_h + 1)
+            print('UNFROZE backbone.convs[{}]'.format(str(conv_to_grab)))
+
+            if layer_to_extract_from == 'conv-2' and \
+                    layers_unfrozen < backbone.n_h + 1:
+                layers_unfrozen += backbone.n_h + 1
+
+            # get the next layer
+            layers_to_unfreeze.extend(
+                list(backbone.convs[conv_to_grab].fc_full.parameters()))
+            layers_to_unfreeze.extend(
+                list(backbone.convs[conv_to_grab].bn1.parameters()))
+            layers_to_unfreeze.extend(
+                list(backbone.convs[conv_to_grab].bn2.parameters()))
+
+            layers_unfrozen += 1
+
+        else:
+            print('UNFROZE EMBEDDING')
+            layers_to_unfreeze.extend(
+                list(backbone.embedding.parameters()))
+
+            for p in layers_to_unfreeze:
+                p.requires_grad = True
+
+            return layers_to_unfreeze
+
+    for p in layers_to_unfreeze:
+        p.requires_grad = True
+
+    return layers_to_unfreeze
+
+
 def normalizer_from_subsets(list_of_subsets):
     """
     Create a Normalizer object for a target variable, ignoring all labels
