@@ -86,6 +86,11 @@ def get_extractor(checkpoint_path=None, layer_to_extract_from='conv',
         raise AttributeError(
             'layer_to_extract_from must be \'conv\', \'first_fc\', or '
             '\'penultimate_fc\'.')
+
+    # Freeze the backbone
+    for p in model.parameters():
+        p.requires_grad = False
+
     return model
 
 
