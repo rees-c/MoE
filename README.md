@@ -46,5 +46,9 @@ be executed as:
 python main.py --dataset_name expt_eform --option add_k --use_all_extractors --k_extractor_gating 4
 ```
 
+## Pre-training data
+For datasets used during extractor pre-training, see
+https://drive.google.com/drive/folders/1lPphRgFheI7vhUGKZXR6acWcC59tVo5w?usp=sharing
+
 ## Contact
 To ask questions, please open an issue on the issues tracker.
